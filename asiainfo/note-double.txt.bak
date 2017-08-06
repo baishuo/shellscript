@@ -1,0 +1,735 @@
+
+./runRemoteCmd.sh 'mkdir -p /data1/huijun/dfs/data' all; \
+./runRemoteCmd.sh 'mkdir -p /data2/huijun/dfs/data' all; \
+./runRemoteCmd.sh 'chown -R huijun /data1/' all; \
+./runRemoteCmd.sh 'chown -R huijun /data2' all; \
+source ~/.bash_profile
+---------------------------------------------------------------------------------------------------
+重要步骤：关防火墙
+suUser=root;\
+supasswd=huijun;\
+user=huijun;\
+passwd=huijun;\
+for server in `cat deploy.conf|grep -v '^#'|grep ','all','|awk -F',' '{print $1}'`;\
+do \
+echo $supasswd|./sshaskpass.sh ssh -o 'StrictHostKeyChecking no' $suUser@$server \
+   "service iptables stop";\
+done;
+------------------------------------------------
+这个谨慎！
+
+suUser=root;\
+supasswd=huijun;\   
+user=test;\   #--想创建什么用户，就创建什么用户
+passwd=test;\
+for server in `cat deploy.conf|grep -v '^#'|grep ','all','|awk -F',' '{print $1}'`;\
+do \
+echo $supasswd|./sshaskpass.sh ssh -o 'StrictHostKeyChecking no' $suUser@$server \
+   "userdel -rf $user;adduser $user;echo $user:$passwd|chpasswd";\
+done;
+
+-----------------------------------------------------------------------------------------------
+添加互信
+su - huijun;\
+user=huijun;\
+passwd=huijun;\
+for server in `cat ~/deploy.conf|grep -v '^#'|grep ','all','|awk -F',' '{print $1}'`;\
+do \
+echo $passwd|./sshaskpass.sh ssh -o 'StrictHostKeyChecking no' $user@$server "\
+ssh-keygen -t rsa -P '' -f ~/.ssh/id_rsa;\
+cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys;\
+chmod go-w \$HOME \$HOME/.ssh;chmod 600 \$HOME/.ssh/authorized_keys;\
+chown `whoami` \$HOME/.ssh/authorized_keys"; \
+done;\
+\
+for server in `cat ~/deploy.conf|grep -v '^#'|grep ','all','|awk -F',' '{print $1}'`;\
+do \
+echo $passwd|./sshaskpass.sh ssh $user@$server cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys;\
+done;\
+\
+for server in `cat ~/deploy.conf|grep -v '^#'|grep ','all','|awk -F',' '{print $1}'`;\
+do \
+echo $passwd|./sshaskpass.sh scp ~/.ssh/authorized_keys $user@$server:~/.ssh/authorized_keys;\
+done;\
+-------------------------------------------------------------------------------------------------------
+./runRemoteCmd.sh "\
+mkdir app;\ 
+cd download;\
+tar -xvzf jdk-7u51-linux-x64.tar.gz -C ../app/ " all
+
+
+PATH=$PATH:$HOME/bin
+JAVA_HOME=/home/huijun/app/jdk1.7.0_51
+PATH=$JAVA_HOME/bin:$PATH
+export JAVA_HOME
+
+./deploy.sh ~/.bash_profile ~/ all
+./runRemoteCmd.sh "source ~/.bash_profile" all ---这句不好使
+
+./deploy.sh download/ochadoop-och4.0.1.tar.gz ~/download/ all
+./runRemoteCmd.sh "tar -xvzf download/ochadoop-och4.0.1.tar.gz -C ~/app/" all; \
+./runRemoteCmd.sh "cd app/ochadoop-och4.0.1;tar -xvzf hadoop-2.5.0-cdh5.2.1-och4.0.1.tar.gz" all; \
+./runRemoteCmd.sh "cd app/ochadoop-och4.0.1;tar -xvzf hbase-0.98.6.1-och4.0.1.tar.gz" all; \
+./runRemoteCmd.sh "cd app/ochadoop-och4.0.1;tar -xvzf hive-0.13.1-cdh5.2.1-och4.0.1.tar.gz" all; \
+./runRemoteCmd.sh "cd app/ochadoop-och4.0.1;tar -xvzf zookeeper-3.4.5-cdh5.2.1-och4.0.1.tar.gz" all; \
+./runRemoteCmd.sh "cd app/ochadoop-och4.0.1;tar -xvzf spark-1.2.0-oc-2.5.0-cdh5.2.1.tar.gz" all; \
+
+
+cp app/ochadoop-och4.0.1/zookeeper-3.4.5-cdh5.2.1-och4.0.1/conf/zoo_sample.cfg app/ochadoop-och4.0.1/zookeeper-3.4.5-cdh5.2.1-och4.0.1/conf/zoo.cfg
+
+vim app/ochadoop-och4.0.1/zookeeper-3.4.5-cdh5.2.1-och4.0.1/conf/zoo.cfg
+dataDir=/home/huijun/tmp/zookeeper
+clientPort=2183
+server.1=192.168.71.148:2888:3888
+server.2=192.168.71.163:2888:3888
+
+
+
+mkdir -p /home/huijun/tmp/zookeeper;\
+touch /home/huijun/tmp/zookeeper/myid; \
+echo "1" > /home/huijun/tmp/zookeeper/myid;\
+-------------------------------------------------------------------
+mkdir -p /home/huijun/tmp/zookeeper;\
+touch /home/huijun/tmp/zookeeper/myid; \
+echo "2" > /home/huijun/tmp/zookeeper/myid;\
+重要步骤：启动zookeeper
+./deploy.sh app/ochadoop-och4.0.1/zookeeper-3.4.5-cdh5.2.1-och4.0.1/conf/zoo.cfg app/ochadoop-och4.0.1/zookeeper-3.4.5-cdh5.2.1-och4.0.1/conf/ zoo
+./runRemoteCmd.sh "app/ochadoop-och4.0.1/zookeeper-3.4.5-cdh5.2.1-och4.0.1/bin/zkServer.sh start" zoo
+./runRemoteCmd.sh "app/ochadoop-och4.0.1/zookeeper-3.4.5-cdh5.2.1-och4.0.1/bin/zkServer.sh stop" zoo
+
+./runRemoteCmd.sh 'echo ruok | nc localhost 2183' zoo
+
+----------------------------------------------------------------
+hdfs-site.xml
+<property>
+    <name>dfs.nameservices</name>
+    <value>cdh5cluster</value>
+    <description>
+        Comma-separated list of nameservices.
+    </description>
+</property>
+<property>
+    <name>dfs.datanode.address</name>
+    <value>0.0.0.0:50011</value>
+    <description>
+      The datanode server address and port for data transfer.
+      If the port is 0 then the server will start on a free port.
+    </description>
+</property>
+<property>
+    <name>dfs.datanode.http.address</name>
+    <value>0.0.0.0:50076</value>
+    <description>
+      The datanode http server address and port.
+      If the port is 0 then the server will start on a free port.
+    </description>
+</property>
+<property>
+    <name>dfs.datanode.ipc.address</name>
+    <value>0.0.0.0:50021</value>
+    <description>
+      The datanode ipc server address and port.
+      If the port is 0 then the server will start on a free port.
+    </description>
+</property>
+<property>
+    <name>dfs.nameservices</name>
+    <value>cdh5cluster</value>
+</property>
+<property>
+    <name>dfs.ha.namenodes.cdh5cluster</name>
+    <value>nn1,nn2</value>
+    <description></description>
+</property>
+<property>
+    <name>dfs.namenode.name.dir</name>
+    <value>file:///data1/huijun/dfs/name</value>
+    <description>Determines where on the local filesystem the DFS name node should store the name table.If this is a comma-delimited list of directories,then name table is replicated in all of the directories,for redundancy.</description>
+    <final>true</final>
+</property>
+<property>
+      <name>dfs.datanode.data.dir</name>
+      <value>file:///data1/huijun/dfs/data,file:///data2/huijun/dfs/data</value>
+      <description>Determines where on the local filesystem an DFS data node should store its blocks.If this is a comma-delimited list of directories,then data will be stored in all named directories,typically on different devices.Directories that do not exist are ignored.
+      </description>
+      <final>true</final>
+</property>
+<property>
+      <name>dfs.replication</name>
+      <value>2</value>
+</property>
+<property>
+      <name>dfs.permission</name>
+      <value>true</value>
+</property>
+<property>
+    <name>dfs.datanode.hdfs-blocks-metadata.enabled</name>
+    <value>true</value>
+    <description>
+      Boolean which enables backend datanode-side support for the experimental DistributedFileSystem*getFileVBlockStorageLocations API.
+    </description>
+</property>
+<property>
+    <name>dfs.permissions.enabled</name>
+    <value>false</value>
+    <description>
+      If "true", enable permission checking in HDFS.
+      If "false", permission checking is turned off,
+      but all other behavior is unchanged.
+      Switching from one parameter value to the other does not change the mode,
+      owner or group of files or directories.
+    </description>
+</property>
+<property>
+    <name>dfs.namenode.rpc-address.cdh5cluster.nn1</name>
+    <value>192.168.71.148:8030</value>
+    <description>节点NN1的RPC地址</description>
+</property>
+<property>
+    <name>dfs.namenode.rpc-address.cdh5cluster.nn2</name>
+    <value>192.168.71.163:8030</value>
+    <description>节点NN2的RPC地址</description>
+</property>
+<property>
+    <name>dfs.namenode.http-address.cdh5cluster.nn1</name>
+    <value>192.168.71.148:50082</value>
+    <description>节点NN1的HTTP地址</description>
+</property>
+<property>
+    <name>dfs.namenode.http-address.cdh5cluster.nn2</name>
+    <value>192.168.71.163:50082</value>
+    <description>节点NN2的HTTP地址</description>
+</property>
+<property>
+    <name>dfs.namenode.shared.edits.dir</name>
+    <value>qjournal://192.168.71.148:8488;192.168.71.163:8488/cdh5cluster</value>
+    <description>采用3个journalnode节点存储元数据，这是IP与端口</description>
+</property>
+<property>
+    <name>dfs.journalnode.edits.dir</name>
+    <value>/home/huijun/journaldata/jn</value>
+    <description>journaldata的存储路径</description>
+</property>
+<property>
+    <name>dfs.journalnode.rpc-address</name>
+    <value>0.0.0.0:8488</value>
+</property>
+<property>
+    <name>dfs.journalnode.http-address</name>
+    <value>0.0.0.0:8483</value>
+</property>
+<property>
+    <name>dfs.client.failover.proxy.provider.cdh5cluster</name>
+    <value>org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider</value>
+    <description>该类用来判断哪个namenode处于生效状态</description>
+</property>
+<property>
+    <name>dfs.ha.fencing.methods</name>
+    <value>shell(/bin/true)</value>
+</property>
+<property>
+    <name>dfs.ha.fencing.ssh.connect-timeout</name>
+    <value>10000</value>
+</property>
+<property>
+    <name>dfs.ha.automatic-failover.enabled</name>
+    <value>true</value>
+    <description>
+      Whether automatic failover is enabled. See the HDFS High
+      Availability documentation for details on automatic HA
+      configuration.
+    </description>
+</property>
+<property>
+    <name>ha.zookeeper.quorum</name>
+    <value>192.168.71.148:2183</value>
+    <description>1个zookeeper节点</description>
+</property>
+<property>
+    <name>dfs.datanode.max.xcievers</name>
+    <value>4096</value>
+</property>
+<property>
+    <name>dfs.datanode.max.transfer.threads</name>
+    <value>4096</value>
+    <description>
+          Specifies the maximum number of threads to use for transferring data
+          in and out of the DN.
+    </description>
+</property>
+<property>
+    <name>dfs.blocksize</name>
+    <value>64m</value>
+    <description>
+        The default block size for new files, in bytes.
+        You can use the following suffix (case insensitive):
+        k(kilo), m(mega), g(giga), t(tera), p(peta), e(exa) to specify the size (such as 128k, 512m, 1g, etc.),
+        Or provide complete size in bytes (such as 134217728 for 128 MB).
+    </description>
+</property>
+<property>
+    <name>dfs.namenode.handler.count</name>
+    <value>20</value>
+    <description>The number of server threads for the namenode.</description>
+</property>
+------------------------------------------------------------------------------------
+
+-------------------------------------------------------------------------------------------------------
+core-site.xml
+
+<property>
+    <name>fs.defaultFS</name>
+    <value>hdfs://cdh5cluster</value>
+    <description>The name of the default file system.  A URI whose
+      scheme and authority determine the FileSystem implementation.  The
+      uri's scheme determines the config property (fs.SCHEME.impl) naming
+      the FileSystem implementation class.  The uri's authority is used to
+      determine the host, port, etc. for a filesystem.</description>
+</property>
+<property>
+    <name>hadoop.tmp.dir</name>
+    <value>/home/huijun/tmp/hadoop/hadoop-${user.name}</value>
+    <description>A base for other temporary directories.</description>
+</property>
+<property>
+    <name>io.native.lib.available</name>
+    <value>true</value>
+    <description>Should native hadoop libraries, if present, be used.</description>
+</property>
+<property>
+    <name>io.compression.codecs</name>
+    <value>org.apache.hadoop.io.compress.GzipCodec,org.apache.hadoop.io.compress.SnappyCodec</value>
+    <description>A comma-separated list of the compression codec classes that can
+      be used for compression/decompression. In addition to any classes specified
+      with this property (which take precedence), codec classes on the classpath
+      are discovered using a Java ServiceLoader.</description>
+</property>
+
+
+
+slaves
+192.168.71.148
+192.168.71.163
+masters
+192.168.71.148
+192.168.71.163
+vim hadoop-env.sh
+export JAVA_HOME=/home/huijun/app/jdk1.7.0_51
+分发
+./deploy.sh app/ochadoop-och4.0.1/hadoop-2.5.0-cdh5.2.1-och4.0.1/etc/hadoop app/ochadoop-och4.0.1/hadoop-2.5.0-cdh5.2.1-och4.0.1/etc all
+初始化HDFS：
+主节点执行
+app/ochadoop-och4.0.1/hadoop-2.5.0-cdh5.2.1-och4.0.1/bin/hdfs zkfc -formatZK
+./runRemoteCmd.sh 'app/ochadoop-och4.0.1/hadoop-2.5.0-cdh5.2.1-och4.0.1/sbin/hadoop-daemon.sh start journalnode' jn
+app/ochadoop-och4.0.1/hadoop-2.5.0-cdh5.2.1-och4.0.1/bin/hdfs namenode -format -initializeSharedEdits
+app/ochadoop-och4.0.1/hadoop-2.5.0-cdh5.2.1-och4.0.1/sbin/hadoop-daemon.sh start namenode
+备节点执行
+app/ochadoop-och4.0.1/hadoop-2.5.0-cdh5.2.1-och4.0.1/bin/hdfs namenode -bootstrapStandby (这个时候需要主namenode是启动的)
+app/ochadoop-och4.0.1/hadoop-2.5.0-cdh5.2.1-och4.0.1/sbin/hadoop-daemon.sh start namenode // 这个也许用不到,start-dfs.sh的时候，都会启动
+完成 （把前面的关了，start-dfs.sh的时候，都会启动）
+app/ochadoop-och4.0.1/hadoop-2.5.0-cdh5.2.1-och4.0.1/sbin/hadoop-daemon.sh stop namenode
+./runRemoteCmd.sh 'app/ochadoop-och4.0.1/hadoop-2.5.0-cdh5.2.1-och4.0.1/sbin/hadoop-daemon.sh stop journalnode' jn
+启动HDFS
+app/ochadoop-och4.0.1/hadoop-2.5.0-cdh5.2.1-och4.0.1/sbin/start-dfs.sh
+验证：
+http://192.168.71.148:50082/dfshealth.html (active)
+http://192.168.71.163:50082/dfshealth.html (standby)
+http://10.1.253.97:8483/journalstatus.jsp
+http://10.1.253.96:8483/journalstatus.jsp
+http://10.1.253.95:8483/journalstatus.jsp
+停止HDFS
+app/ochadoop-och4.0.1/hadoop-2.5.0-cdh5.2.1-och4.0.1/sbin/stop-dfs.sh
+3. Yarn
+
+配置YARN
+mapred-site.xml
+cp app/ochadoop-och4.0.1/hadoop-2.5.0-cdh5.2.1-och4.0.1/etc/hadoop/mapred-site.xml.template app/ochadoop-och4.0.1/hadoop-2.5.0-cdh5.2.1-och4.0.1/etc/hadoop/mapred-site.xml
+
+vim app/ochadoop-och4.0.1/hadoop-2.5.0-cdh5.2.1-och4.0.1/etc/hadoop/mapred-site.xml
+
+<property>
+    <name>mapreduce.framework.name</name>
+    <value>yarn</value>
+</property>
+<property>
+    <name>mapreduce.shuffle.port</name>
+    <value>8350</value>
+</property>
+<property>
+    <name>mapreduce.jobhistory.address</name>
+    <value>0.0.0.0:10121</value>
+</property>
+<property>
+    <name>mapreduce.jobhistory.webapp.address</name>
+    <value>0.0.0.0:19868</value>
+</property>
+<property>
+    <name>mapreduce.jobtracker.http.address</name>
+    <value>0.0.0.0:50330</value>
+</property>
+<property>
+    <name>mapreduce.tasktracker.http.address</name>
+    <value>0.0.0.0:50360</value>
+</property>
+yarn-site.xml
+vim app/ochadoop-och4.0.1/hadoop-2.5.0-cdh5.2.1-och4.0.1/etc/hadoop/yarn-site.xml
+
+<!-- Resource Manager Configs -->
+<property>
+    <name>yarn.resourcemanager.connect.retry-interval.ms</name>
+    <value>2000</value>
+</property>
+<property>
+    <name>yarn.resourcemanager.ha.enabled</name>
+    <value>true</value>
+</property>
+<property>
+    <name>yarn.resourcemanager.ha.automatic-failover.enabled</name>
+    <value>true</value>
+</property>
+<property>
+    <name>yarn.resourcemanager.ha.automatic-failover.embedded</name>
+    <value>true</value>
+</property>
+<property>
+    <name>yarn.resourcemanager.cluster-id</name>
+    <value>yarn-rm-cluster</value>
+</property>
+<property>
+    <name>yarn.resourcemanager.ha.rm-ids</name>
+    <value>rm1,rm2</value>
+</property>
+<property>
+    <description>Id of the current ResourceManager. Must be set explicitly on each ResourceManager to the appropriate value.</description>
+    <name>yarn.resourcemanager.ha.id</name>
+    <value>rm1</value>
+    <!-- rm1上配置为rm1, rm2上配置rm2 -->
+</property>
+<property>
+    <name>yarn.resourcemanager.recovery.enabled</name>
+    <value>true</value>
+</property>
+<property>
+    <name>yarn.resourcemanager.store.class</name>
+    <value>org.apache.hadoop.yarn.server.resourcemanager.recovery.ZKRMStateStore</value>
+</property>
+<property>
+    <name>yarn.resourcemanager.zk.state-store.address</name>
+    <value>192.168.71.148:2183</value>
+</property>
+<property>
+    <name>yarn.resourcemanager.zk-address</name>
+    <value>192.168.71.148:2183</value>
+</property>
+<property>
+    <name>yarn.app.mapreduce.am.scheduler.connection.wait.interval-ms</name>
+    <value>5000</value>
+</property>
+<!-- RM1 configs -->
+<property>
+    <name>yarn.resourcemanager.address.rm1</name>
+    <value>192.168.71.148:23140</value>
+</property>
+<property>
+    <name>yarn.resourcemanager.scheduler.address.rm1</name>
+    <value>192.168.71.148:23130</value>
+</property>
+<property>
+    <name>yarn.resourcemanager.webapp.address.rm1</name>
+    <value>192.168.71.148:23188</value>
+</property>
+<property>
+    <name>yarn.resourcemanager.resource-tracker.address.rm1</name>
+    <value>192.168.71.148:23125</value>
+</property>
+<property>
+    <name>yarn.resourcemanager.admin.address.rm1</name>
+    <value>192.168.71.148:23141</value>
+</property>
+<property>
+    <name>yarn.resourcemanager.ha.admin.address.rm1</name>
+    <value>192.168.71.148:23142</value>
+</property>
+<!-- RM2 configs -->
+<property>
+    <name>yarn.resourcemanager.address.rm2</name>
+    <value>192.168.71.163:23140</value>
+</property>
+<property>
+    <name>yarn.resourcemanager.scheduler.address.rm2</name>
+    <value>192.168.71.163:23130</value>
+</property>
+<property>
+    <name>yarn.resourcemanager.webapp.address.rm2</name>
+    <value>192.168.71.163:23188</value>
+</property>
+<property>
+    <name>yarn.resourcemanager.resource-tracker.address.rm2</name>
+    <value>192.168.71.163:23125</value>
+</property>
+<property>
+    <name>yarn.resourcemanager.admin.address.rm2</name>
+    <value>192.168.71.163:23141</value>
+</property>
+<property>
+    <name>yarn.resourcemanager.ha.admin.address.rm2</name>
+    <value>192.168.71.163:23142</value>
+</property>
+<!-- Node Manager Configs -->
+<property>
+    <description>Address where the localizer IPC is.</description>
+    <name>yarn.nodemanager.localizer.address</name>
+    <value>0.0.0.0:23344</value>
+</property>
+<property>
+    <description>NM Webapp address.</description>
+    <name>yarn.nodemanager.webapp.address</name>
+    <value>0.0.0.0:23999</value>
+</property>
+<property>
+    <name>yarn.nodemanager.aux-services</name>
+    <value>mapreduce_shuffle</value>
+</property>
+<property>
+    <name>yarn.nodemanager.aux-services.mapreduce_shuffle.class</name>
+    <value>org.apache.hadoop.mapred.ShuffleHandler</value>
+</property>
+<property>
+    <name>yarn.nodemanager.local-dirs</name>
+    <value>/tmp/pseudo-dist/yarn/local</value>
+</property>
+<property>
+    <name>yarn.nodemanager.log-dirs</name>
+    <value>/tmp/pseudo-dist/yarn/log</value>
+</property>
+分发
+./deploy.sh app/ochadoop-och4.0.1/hadoop-2.5.0-cdh5.2.1-och4.0.1/etc/hadoop app/ochadoop-och4.0.1/hadoop-2.5.0-cdh5.2.1-och4.0.1/etc all
+****注意这之后，要把rm2上的文件改了
+Yarn的启动停止 YARN不需要初始化，登录主节点执行
+app/ochadoop-och4.0.1/hadoop-2.5.0-cdh5.2.1-och4.0.1/sbin/start-yarn.sh
+cdh5 yarn的ha需要手动启动备节点
+    ./runRemoteCmd.sh "cd app/ochadoop-och4.0.1/hadoop-2.5.0-cdh5.2.1-och4.0.1/sbin; ./yarn-daemon.sh start resourcemanager" rm2
+验证
+http://192.168.71.148:23188/cluster (有节点列表，active)
+http://192.168.71.163:23188/cluster (无节点列表，standby)
+
+app/ochadoop-och4.0.1/hadoop-2.5.0-cdh5.2.1-och4.0.1/bin/hadoop jar app/ochadoop-och4.0.1/hadoop-2.5.0-cdh5.2.1-och4.0.1/share/hadoop/mapreduce/hadoop-mapreduce-client-jobclient-*-tests.jar TestDFSIO -write -nrFiles 40 -fileSize 20MB
+停止YARN
+app/ochadoop-och4.0.1/hadoop-2.5.0-cdh5.2.1-och4.0.1/sbin/stop-yarn.sh
+***手动停止备节点
+./runRemoteCmd.sh "cd app/ochadoop-och4.0.1/hadoop-2.5.0-cdh5.2.1-och4.0.1/sbin; ./yarn-daemon.sh stop resourcemanager" rm2
+4. hive
+
+配置
+
+cp /home/huijun/app/ochadoop-och4.0.1/hive-0.13.1-cdh5.2.1-och4.0.1/conf/hive-env.sh.template /home/huijun/app/ochadoop-och4.0.1/hive-0.13.1-cdh5.2.1-och4.0.1/conf/hive-env.sh
+vim /home/huijun/app/ochadoop-och4.0.1/hive-0.13.1-cdh5.2.1-och4.0.1/conf/hive-env.sh
+
+export HADOOP_HOME=/home/huijun/app/ochadoop-och4.0.1/hadoop-2.5.0-cdh5.2.1-och4.0.1
+
+cp /home/huijun/app/ochadoop-och4.0.1/hive-0.13.1-cdh5.2.1-och4.0.1/conf/hive-default.xml.template /home/huijun/app/ochadoop-och4.0.1/hive-0.13.1-cdh5.2.1-och4.0.1/conf/hive-site.xml
+vim /home/huijun/app/ochadoop-och4.0.1/hive-0.13.1-cdh5.2.1-och4.0.1/conf/hive-site.xml
+删除其他配置项，只保留：
+<property>
+    <name>javax.jdo.option.ConnectionURL</name>
+    <value>jdbc:mysql://192.168.71.148:3306/cdh5?createDatabaseIfNotExist=true&amp;useUnicode=true&amp;characterEncoding=UTF-8</value>
+    <description>JDBC connect string for a JDBC metastore</description>
+</property>
+<property>
+    <name>javax.jdo.option.ConnectionDriverName</name>
+    <value>com.mysql.jdbc.Driver</value>
+    <description>Driver class name for a JDBC metastore</description>
+</property>
+<property>
+    <name>javax.jdo.option.ConnectionUserName</name>
+    <value>cdh5</value>
+    <description>username to use against metastore database</description>
+</property>
+<property>
+    <name>javax.jdo.option.ConnectionPassword</name>
+    <value>cdh5</value>
+    <description>password to use against metastore database</description>
+</property>
+元数据库配置
+CREATE USER cdh5 IDENTIFIED BY 'cdh5';
+CREATE DATABASE cdh5;
+alter database cdh5 character set latin1;
+grant all privileges on *.* to cdh5@"%" identified by "cdh5";
+flush privileges;
+上传jdbc jar包
+scp mysql-connector-java-5.1.26.jar huijun@192.168.71.148:/home/huijun/app/ochadoop-och4.0.1/hive-0.13.1-cdh5.2.1-och4.0.1/lib/
+分发
+./deploy.sh app/ochadoop-och4.0.1/hive-0.13.1-cdh5.2.1-och4.0.1 app/ochadoop-och4.0.1/ all
+启动
+nohup app/ochadoop-och4.0.1/hive-0.13.1-cdh5.2.1-och4.0.1/bin/hiveserver2 &
+验证
+
+app/ochadoop-och4.0.1/hive-0.13.1-cdh5.2.1-och4.0.1/bin/beeline 
+!connect jdbc:hive2://192.168.71.148:10000/default -n oracle
+Enter username:dmp
+Enter password:dmp
+
+show tables;
++--------------+
+|   tab_name   |
++--------------+
+| shaoaq_test  |
++--------------+
+
+select * from shaoaq_test;
++-----+
+| id  |
++-----+
++-----+
+5. hbase
+
+配置
+vim app/ochadoop-och4.0.1/hbase-0.98.6.1-och4.0.1/conf/regionservers
+
+192.168.71.148
+192.168.71.163
+ocdata07
+
+vim app/ochadoop-och4.0.1/hbase-0.98.6.1-och4.0.1/conf/backup-masters
+
+ocdata08
+
+vim app/ochadoop-och4.0.1/hbase-0.98.6.1-och4.0.1/conf/hbase-site.xml
+
+<property>
+    <name>hbase.rootdir</name>
+    <value>hdfs://cdh5cluster/hbase</value>
+</property>
+<property>  
+    <name>hbase.cluster.distributed</name>  
+    <value>true</value>  
+</property>
+<property>
+    <name>hbase.zookeeper.quorum</name>
+    <value>ocdata09</value>
+</property>
+<property>
+    <name>hbase.zookeeper.property.clientPort</name>
+    <value>2183</value>
+</property>
+<property>
+    <name>hbase.regionserver.port</name>
+    <value>60328</value>
+</property>
+<property>
+    <name>hbase.regionserver.info.port</name>
+    <value>62131</value>
+</property>
+
+vim app/ochadoop-och4.0.1/hbase-0.98.6.1-och4.0.1/conf/hbase-env.sh
+
+export JAVA_HOME=/home/huijun/app/jdk1.7.0_51
+export HBASE_CLASSPATH=/home/huijun/app/ochadoop-och4.0.1/hadoop-2.5.0-cdh5.2.1-och4.0.1/etc/hadoop
+export HBASE_HOME=/home/huijun/app/hbase
+export HADOOP_HOME=/home/huijun/app/hadoop
+export HADOOP_CONF_DIR=${HADOOP_HOME}/conf
+export HBASE_LIBRARY_PATH=${HBASE_HOME}/lib/native
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:${HBASE_HOME}/lib/native
+export HBASE_MANAGES_ZK=false
+分发配置
+./deploy.sh app/ochadoop-och4.0.1/hbase-0.98.6.1-och4.0.1/conf app/ochadoop-och4.0.1/hbase-0.98.6.1-och4.0.1/ all
+启动
+./start-hbase.sh
+验证
+./hbase shell
+create 'hb_test', 'cf'
+put 'hb_test','row1','cf:a','123'
+get 'hb_test','row1'
+COLUMN                            CELL
+cf:a                             timestamp=1395204538429, value=123
+1 row(s) in 0.0490 seconds
+quit
+停止
+./stop-hbase.sh
+5. spark
+
+spark当前可解压即用，yarn-client模式无需分发，只需修改客户端若干配置；
+spark-1.1.0 on yarn的几个配置说明如下：
+vim spark-env.sh
+
+MASTER：部署模式，yarn-client/yarn-cluster/local
+HADOOP_CONF_DIR：（必填）hadoop配置文件目录
+SCALA_HOME：scala安装路径
+SPARK_EXECUTOR_INSTANCES：spark申请的yarn worker总数
+SPARK_EXECUTOR_CORES：每个worker申请的vcore数目
+SPARK_EXECUTOR_MEMORY：每个worker申请的内存大小
+SPARK_DRIVER_MEMORY：spark申请的appMaster内存大小
+SPARK_YARN_APP_NAME：yarn中显示的spark任务名称
+SPARK_YARN_QUEUE：spark任务队列
+SPARK_SUBMIT_LIBRARY_PATH：spark任务执行时需要的库目录，如hadoop的native目录
+SPARK_CLASSPATH：spark任务的classpath
+SPARK_JAVA_OPTS：JVM进程参数，如gc类型、gc日志、dmp输出等
+SPARK_HISTORY_OPTS：spark history-server配置参数，一般需要指定webUI端口、记录个数以及Event存储目录等
+
+vim spark-defaults.conf
+
+spark.local.dir：spark任务执行时的本地临时目录
+spark.yarn.executor.memoryOverhead：每个worker的堆外内存大小，单位MB，yarn模式下需配置以防止内存溢出
+spark.eventLog.enabled：是否记录Spark事件，用 于应用程序在完成后重构webUI
+spark.eventLog.dir：保存日志相关信息的路径，可以是hdfs://开头的HDFS路径，也可以是file://开头的本地路径，都需要提前创建
+spark.eventLog.compress：是否压缩记录Spark事件，前提spark.eventLog.enabled为true，默认使用snappy
+启停thrift-server：
+使用spark-sql/thrift-server组件前需将hive-site.xml复制到$SPARK_HOME/conf目录下以使用hive的元数据和若干配置如server端口，可能需要去掉其中的一些多余或不支持的配置项，请留意；
+    $SPARK_HOME/sbin/start-thriftserver.sh
+    $SPARK_HOME/sbin/stop-thriftserver.sh
+启停history-server：
+$SPARK_HOME/sbin/start-history-server.sh
+$SPARK_HOME/sbin/stop-history-server.sh
+注意：
+如hadoop中启用了lzo压缩需将hadoop-lzo-*.jar复制到SPARK_HOME/lib/目录下；
+SPARK-1.1.0版本中spark-examples-*.jar关联的thrift版本与spark-assembly-*.jar不一致，需删除；
+配置样例：
+spark-env.sh
+    MASTER="yarn-client"
+    SPARK_HOME=/home/huijun/app/ochadoop-och4.0.1/spark-1.2.0-oc-bin-2.5.0-cdh5.2.1
+    SCALA_HOME=/home/ochadoop/app/scala
+    JAVA_HOME=/home/huijun/app/jdk1.7.0_51
+    HADOOP_HOME=/home/huijun/app/ochadoop-och4.0.1/hadoop-2.5.0-cdh5.2.1-och4.0.1
+    HADOOP_CONF_DIR=$HADOOP_HOME/etc/hadoop
+    SPARK_CLASSPATH=$SPARK_CLASSPATH:/home/Hadoop/software/mysql-connector-java-5.1.27-bin.jar
+
+    SPARK_EXECUTOR_INSTANCES=50
+    SPARK_EXECUTOR_CORES=1
+    SPARK_EXECUTOR_MEMORY=1G
+    SPARK_DRIVER_MEMORY=2G
+    SPARK_YARN_APP_NAME="Spark-1.2.0"
+    #export SPARK_YARN_QUEUE="default"
+
+    SPARK_SUBMIT_LIBRARY_PATH=$SPARK_LIBRARY_PATH:$HADOOP_HOME/lib/native
+    SPARK_JAVA_OPTS="-verbose:gc -XX:-UseGCOverheadLimit -XX:+UseCompressedOops -XX:-PrintGCDetails -XX:+PrintGCTimeStamps $SPARK_JAVA_OPTS -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/home/ochadoop/app/spark/`date +%m%d%H%M%S`.hprof"
+    export SPARK_HISTORY_OPTS="-Dspark.history.ui.port=18080 -Dspark.history.retainedApplications=1000 -Dspark.history.fs.logDirectory=hdfs://testcluster/eventLog"
+spark-defaults.conf
+    spark.serializer                    org.apache.spark.serializer.KryoSerializer
+    spark.local.dir                     /data2/ochadoop/data/pseudo-dist/spark/local,/data3/ochadoop/data/pseudo-dist/spark/local
+    spark.io.compression.codec          snappy
+    spark.speculation                   false
+    spark.yarn.executor.memoryOverhead  512
+    #spark.storage.memoryFraction       0.4
+    spark.eventLog.enabled              true
+    spark.eventLog.dir                  hdfs://testcluster/eventLog
+    spark.eventLog.compress             true
+    
+    
+安装mysql：（最好用root安装？）
+cd /home/huijun/mysql
+tar -xzvf mysql-5.6.17-linux-glibc2.5-x86_64.tar.gz   
+cd mysql-5.6.17-linux-glibc2.5-x86_64
+cp support-files/my-default.cnf ./my.cnf
+mkdir /usr/local/mysql/datadir
+vim ./my.cnf
+basedir =/usr/local/mysql
+datadir =/usr/local/mysql/datadir
+port = 3306
+# server_id = .....
+socket =/usr/local/mysql/mysqld.sock
+
+然后执行：  ./scripts/mysql_install_db --user=root
+
+根据提示，给root一个新的密码
+ln -s /home/huijun/mysql/mysql-5.6.17-linux-glibc2.5-x86_64/mysqld.sock  /tmp/mysql.sock
+  

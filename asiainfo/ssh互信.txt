@@ -1,0 +1,47 @@
+第一步：所有节点分别生成密钥对
+所有节点都要做：
+命令行中，通过cd命令进入根目录，在根目录执行以下命令生成秘钥：
+ssh-keygen -t rsa
+密钥成功生成后存储在根目录下的.ssh隐藏目录下，直接用 cd .ssh 就能进入，然后用ls命令就能看到id_rsa    id_rsa.pub
+
+第二步：拷贝生成authorized_keys
+所有节点都要做：
+将id_rsa.pub拷贝到文件anthorized_keys文件中，在 .ssh 文件夹中执行以下命令： 
+cp id_rsa.pub authorized_keys
+
+第三步：合并所有节点的authorized_keys文件，并分发到所有节点根目录的 .ssh 隐藏文件夹下
+slave1中将authorized_keys发送到master的temp1临时文件中:
+scp authorized_keys root@master:~/.ssh/temp1
+
+slave2中将authorized_keys发送到master的temp2临时文件中:
+scp authorized_keys root@master:~/.ssh/temp2
+
+master中将temp1和temp2附加到authorized_keys文件中，这样的话master的authorized_keys文件就包含了所有节点的公钥:
+cat temp1 >> authorized_keys
+cat temp2 >> authorized_keys
+rm temp1
+rm temp2
+
+master中将合并好的authorized_keys文件分发到各节点：
+scp authorized_keys root@slave1:~/.ssh/
+scp authorized_keys root@slave2:~/.ssh/
+
+第四步：所有系统配置  /etc/ssh/sshd_config  文件，使得系统使用公钥认证，并能识别 authorized_keys
+cd /etc/ssh/ 以后，
+sudo vi sshd_config 
+在文件中找到以下几行
+RSAAuthentication yes
+PubkeyAuthentication yes
+#AuthorizedKeysFile%h/.ssh/authorized_keys
+把#去掉即可，系统就能通过authorized_keys来识别公钥了
+
+第五步：检查sshd是否运行/安装，如果未安装将不能成功相互连接
+运行 ps -e | grep ssh，查看是否有sshd进程
+如果没有，说明server没启动，通过 /etc/init.d/ssh -start 启动server进程
+如果提示ssh不存在 那么就是没安装server
+通过 sudo apt-get install openssh-server命令安装即可
+
+第六步：解决 Agent admitted failure to sign using the key
+如果出现该错误，则需要在所有的节点都执行   ssh-add   ~/.ssh/id_rsa   将私钥加入ssh。
+
+至此，大功告成，应该就可以在任意一台机器使用 ssh  master/slave1/slave2 免密码连入对方了。
